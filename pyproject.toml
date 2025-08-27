@@ -1,0 +1,20 @@
+[project]
+name = "liciogellifin"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Saval-0",email = "ivano.giordano242@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "python-dotenv (>=1.1.1,<2.0.0)"
+]
+
+[tool.poetry]
+packages = [{include = "liciogellifin", from = "src"}]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
