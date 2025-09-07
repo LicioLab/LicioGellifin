@@ -3,17 +3,24 @@ name = "liciogellifin"
 version = "0.1.0"
 description = ""
 authors = [
-    {name = "Saval-0",email = "ivano.giordano242@gmail.com"}
+    {name = "Saval-0", email = "ivano.giordano242@gmail.com"}
 ]
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.12,<3.13"
 dependencies = [
-    "python-dotenv (>=1.1.1,<2.0.0)"
+    "python-dotenv>=1.1.1,<2.0.0",
+    "python-telegram-bot>=20.7,<21.0.0"
+]
+
+[project.optional-dependencies]
+dev = [
+    "black>=23.0.0",
+    "flake8>=6.0.0", 
+    "pytest>=7.0.0"
 ]
 
 [tool.poetry]
-packages = [{include = "liciogellifin", from = "src"}]
-
+package-mode = false
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
