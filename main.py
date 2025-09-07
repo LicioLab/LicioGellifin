@@ -1,6 +1,7 @@
 import os
 import logging
 import sys
+import asyncio
 from dotenv import load_dotenv
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -142,11 +143,80 @@ class LicioGelliFinBot:
             parse_mode='Markdown'
         )
 
+    def is_tidal_url(self, url: str) -> bool:
+        """Check if the URL is from Tidal."""
+        return 'tidal.com' in url.lower()
+
+    async def download_with_tidal_dl_ng(self, url: str) -> tuple[bool, str]:
+        """Download using tidal-dl-ng and return (success, message)."""
+        try:
+            # Run tidal-dl-ng command
+            process = await asyncio.create_subprocess_exec(
+                'tidal-dl-ng',
+                'dl',
+                url,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            stdout, stderr = await process.communicate()
+            
+            if process.returncode == 0:
+                # Success
+                output = stdout.decode('utf-8').strip()
+                return True, f"✅ Download completato con successo!"
+            else:
+                # Error
+                error_output = stderr.decode('utf-8').strip()
+                logger.error(f"tidal-dl-ng failed with return code {process.returncode}: {error_output}")
+                return False, f"❌ Errore durante il download:\n\n`{error_output[-500:]}`"
+                
+        except FileNotFoundError:
+            logger.error("tidal-dl-ng not found in system PATH")
+            return False, "❌ tidal-dl-ng non trovato. Assicurati che sia installato e nel PATH."
+        except Exception as e:
+            logger.error(f"Unexpected error during tidal-dl-ng execution: {e}")
+            return False, f"❌ Errore imprevisto: {str(e)}"
+
+    async def download_with_yt_dlp(self, url: str) -> tuple[bool, str]:
+        """Download using yt-dlp and return (success, message)."""
+        try:
+            # Run yt-dlp command
+            process = await asyncio.create_subprocess_exec(
+                'yt-dlp',
+                '--paths', '~/Media/to_sort',
+                '--yes-playlist',
+                '--format', 'bestaudio',
+                '--extract-audio',
+                '--audio-format', 'mp3',
+                '--audio-quality', '0',
+                url,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            stdout, stderr = await process.communicate()
+            
+            if process.returncode == 0:
+                # Success
+                output = stdout.decode('utf-8').strip()
+                return True, f"✅ Download completato con successo!"
+            else:
+                # Error
+                error_output = stderr.decode('utf-8').strip()
+                logger.error(f"yt-dlp failed with return code {process.returncode}: {error_output}")
+                return False, f"❌ Errore durante il download:\n\n`{error_output[-500:]}`"
+                
+        except FileNotFoundError:
+            logger.error("yt-dlp not found in system PATH")
+            return False, "❌ yt-dlp non trovato. Assicurati che sia installato e nel PATH."
+        except Exception as e:
+            logger.error(f"Unexpected error during yt-dlp execution: {e}")
+            return False, f"❌ Errore imprevisto: {str(e)}"
+
     async def handle_url(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle URL messages for downloading."""
-        url = update.message.text
-        if url.endswith("/u"):
-            url = url[:-2]
+        url = update.message.text.strip()
         
         # Basic URL validation
         if not (url.startswith('http://') or url.startswith('https://')):
@@ -155,32 +225,54 @@ class LicioGelliFinBot:
             )
             return
         
-        # Send processing message
-        processing_msg = await update.message.reply_text(
-            "⏳ Sto elaborando il tuo link...\n"
-            "Questo potrebbe richiedere alcuni minuti."
-        )
-        
-        # Here you would implement the actual download logic
-        # For now, just simulate processing
-        try:
-            # TODO: Implement actual download logic here
-            # You'll need to determine which tool to use based on URL or user selection
-            # and then call the appropriate download function
-            
-            await processing_msg.edit_text(
-                "✅ Download completato!\n\n"
-                f"URL processato: `{url[:50]}`\n\n"
-                "🚧 *Nota:* Funzionalità di download non ancora implementata.",
-                parse_mode='Markdown'
+        # Check if it's a Tidal URL
+        if self.is_tidal_url(url):
+            if url.endswith("/u"):
+                url = url[:-2]
+
+            # Send processing message
+            processing_msg = await update.message.reply_text(
+                "⏳ Avvio download con tidal-dl-ng...\n"
+                "Questo potrebbe richiedere alcuni minuti."
             )
             
-        except Exception as e:
-            logger.error(f"Error processing URL {url}: {e}")
-            await processing_msg.edit_text(
-                "❌ Si è verificato un errore durante l'elaborazione del link.\n"
-                "Riprova più tardi o contatta il supporto."
+            try:
+                # Download with tidal-dl-ng
+                success, message = await self.download_with_tidal_dl_ng(url)
+                
+                await processing_msg.edit_text(
+                    message,
+                    parse_mode='Markdown'
+                )
+                
+            except Exception as e:
+                logger.error(f"Error processing URL {url}: {e}")
+                await processing_msg.edit_text(
+                    "❌ Si è verificato un errore durante l'elaborazione del link.\n"
+                    f"Dettagli: {str(e)}"
+                )
+        else:
+            # Use yt-dlp for non-Tidal URLs
+            processing_msg = await update.message.reply_text(
+                "⏳ Avvio download con yt-dlp...\n"
+                "Questo potrebbe richiedere alcuni minuti."
             )
+            
+            try:
+                # Download with yt-dlp
+                success, message = await self.download_with_yt_dlp(url)
+                
+                await processing_msg.edit_text(
+                    message,
+                    parse_mode='Markdown'
+                )
+                
+            except Exception as e:
+                logger.error(f"Error processing URL {url}: {e}")
+                await processing_msg.edit_text(
+                    "❌ Si è verificato un errore durante l'elaborazione del link.\n"
+                    f"Dettagli: {str(e)}"
+                )
 
     async def error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Log errors caused by Updates."""
@@ -242,5 +334,3 @@ def main() -> None:
 
 if __name__ == '__main__':
     main()
-
-
