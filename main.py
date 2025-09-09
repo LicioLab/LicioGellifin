@@ -37,6 +37,7 @@ class LicioGelliFinBot:
                 InlineKeyboardButton("📺 yt-dlp", callback_data='yt_dlp'),
             ],
             [
+                InlineKeyboardButton("📁 List Files", callback_data='list_files'),
                 InlineKeyboardButton("❓ Help", callback_data='help'),
             ]
         ]
@@ -47,7 +48,8 @@ class LicioGelliFinBot:
             "🤖 *Benvenuto in LicioGelliFin Bot!*\n\n"
             "Seleziona il tool che vuoi utilizzare per scaricare contenuti multimediali:\n\n"
             "🎵 *tidal-dl-ng* - Per scaricare musica da Tidal\n"
-            "📺 *yt-dlp* - Per scaricare video da YouTube e altri siti\n\n"
+            "📺 *yt-dlp* - Per scaricare video da YouTube e altri siti\n"
+            "📁 *List Files* - Mostra i file nella cartella corrente\n\n"
             "Usa /help per maggiori informazioni."
         )
         
@@ -64,14 +66,74 @@ class LicioGelliFinBot:
             "/start - Avvia il bot e mostra le opzioni di download\n"
             "/dl - Mostra le opzioni di download, alias per /start\n"
             "/help - Mostra questo messaggio di aiuto\n"
+            "/list - Mostra i file nella cartella corrente\n"
         )
         
         await update.message.reply_text(help_text, parse_mode='Markdown')
+
+    async def list_files(self) -> tuple[bool, str]:
+        """List files in current directory using ls command."""
+        try:
+            # Run ls command
+            process = await asyncio.create_subprocess_exec(
+                'ls',
+                #'-l',
+                '/Users/orald/Media/Music',  # Long format with hidden files
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            stdout, stderr = await process.communicate()
+            
+            if process.returncode == 0:
+                # Success
+                output = stdout.decode('utf-8').strip()
+                if not output:
+                    return True, "📁 La cartella è vuota."
+                
+                # Limit output length for Telegram message limits
+                if len(output) > 3000:
+                    output = output[:3000] + "\n\n... (output truncated)"
+                
+                return True, f"📁 *File nella cartella corrente:*\n\n```\n{output}\n```"
+            else:
+                # Error
+                error_output = stderr.decode('utf-8').strip()
+                logger.error(f"ls command failed with return code {process.returncode}: {error_output}")
+                return False, f"❌ Errore durante l'esecuzione del comando ls:\n\n`{error_output}`"
+                
+        except FileNotFoundError:
+            logger.error("ls command not found in system PATH")
+            return False, "❌ Comando ls non trovato. Sistema non supportato."
+        except Exception as e:
+            logger.error(f"Unexpected error during ls execution: {e}")
+            return False, f"❌ Errore imprevisto: {str(e)}"
 
     async def button_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle button presses."""
         query = update.callback_query
         await query.answer()
+        
+        if query.data == 'list_files':
+            # Show loading message
+            await query.edit_message_text(
+                "⏳ Caricamento lista file...",
+                parse_mode='Markdown'
+            )
+            
+            # Get file list
+            success, message = await self.list_files()
+            
+            # Add back button
+            keyboard = [[InlineKeyboardButton("« Torna al menu", callback_data='back_to_menu')]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                message,
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+            return
         
         responses = {
             'tidal_dl_ng': (
@@ -100,21 +162,19 @@ class LicioGelliFinBot:
         
         response = responses.get(query.data, "Opzione non riconosciuta!")
         
-        # Add back button for help
-        if query.data in ['help']:
+        # Add back button for help and tool selection
+        if query.data in ['help', 'tidal_dl_ng', 'yt_dlp']:
             keyboard = [[InlineKeyboardButton("« Torna al menu", callback_data='back_to_menu')]]
             reply_markup = InlineKeyboardMarkup(keyboard)
         elif query.data == 'back_to_menu':
             await self.show_main_menu(query)
             return
         else:
-            # For tool selection, add a back button
-            keyboard = [[InlineKeyboardButton("« Torna al menu", callback_data='back_to_menu')]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
+            reply_markup = None
         
         await query.edit_message_text(
             response,
-            reply_markup=reply_markup if query.data != 'back_to_menu' else None,
+            reply_markup=reply_markup,
             parse_mode='Markdown'
         )
     
@@ -126,6 +186,7 @@ class LicioGelliFinBot:
                 InlineKeyboardButton("📺 yt-dlp", callback_data='yt_dlp'),
             ],
             [
+                InlineKeyboardButton("📁 List Files", callback_data='list_files'),
                 InlineKeyboardButton("❓ Help", callback_data='help'),
             ]
         ]
@@ -140,6 +201,17 @@ class LicioGelliFinBot:
         await query.edit_message_text(
             welcome_message,
             reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
+
+    async def list_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /list command."""
+        processing_msg = await update.message.reply_text("⏳ Caricamento lista file...")
+        
+        success, message = await self.list_files()
+        
+        await processing_msg.edit_text(
+            message,
             parse_mode='Markdown'
         )
 
@@ -291,6 +363,7 @@ class LicioGelliFinBot:
         self.application.add_handler(CommandHandler("start", self.start))
         self.application.add_handler(CommandHandler("dl", self.start))
         self.application.add_handler(CommandHandler("help", self.help_command))
+        self.application.add_handler(CommandHandler("list", self.list_command))
         
         # Callback query handler for buttons
         self.application.add_handler(CallbackQueryHandler(self.button_handler))
@@ -334,3 +407,4 @@ def main() -> None:
 
 if __name__ == '__main__':
     main()
+
