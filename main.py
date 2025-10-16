@@ -1,7 +1,11 @@
+
+
 import os
 import logging
 import sys
 import asyncio
+import re
+import time
 from dotenv import load_dotenv
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -33,7 +37,7 @@ class LicioGelliFinBot:
         """Send a message with inline keyboard when /start command is issued."""
         keyboard = [
             [
-                InlineKeyboardButton("🎵 tidal-dl-ng", callback_data='tidal_dl_ng'),
+                InlineKeyboardButton("🎵 qobuz-dl", callback_data='qobuz-dl'),
                 InlineKeyboardButton("📺 yt-dlp", callback_data='yt_dlp'),
             ],
             [
@@ -47,7 +51,7 @@ class LicioGelliFinBot:
         welcome_message = (
             "🤖 *Benvenuto in LicioGelliFin Bot!*\n\n"
             "Seleziona il tool che vuoi utilizzare per scaricare contenuti multimediali:\n\n"
-            "🎵 *tidal-dl-ng* - Per scaricare musica da Tidal\n"
+            "🎵 *qobuz-dl* - Per scaricare musica da Qobuz\n"
             "📺 *yt-dlp* - Per scaricare video da YouTube e altri siti\n"
             "📁 *List Files* - Mostra i file nella cartella corrente\n\n"
             "Usa /help per maggiori informazioni."
@@ -136,9 +140,9 @@ class LicioGelliFinBot:
             return
         
         responses = {
-            'tidal_dl_ng': (
-                "🎵 *Hai selezionato tidal-dl-ng!*\n\n"
-                "Ora puoi inviare un link di Tidal per scaricare:\n"
+            'qobuz-dl': (
+                "🎵 *Hai selezionato qobuz-dl!*\n\n"
+                "Ora puoi inviare un link di Qobuz per scaricare:\n"
                 "• Album completi\n"
                 "• Singole tracce\n"
                 "• Playlist\n\n"
@@ -163,7 +167,7 @@ class LicioGelliFinBot:
         response = responses.get(query.data, "Opzione non riconosciuta!")
         
         # Add back button for help and tool selection
-        if query.data in ['help', 'tidal_dl_ng', 'yt_dlp']:
+        if query.data in ['help', 'qobuz-dl', 'yt_dlp']:
             keyboard = [[InlineKeyboardButton("« Torna al menu", callback_data='back_to_menu')]]
             reply_markup = InlineKeyboardMarkup(keyboard)
         elif query.data == 'back_to_menu':
@@ -182,7 +186,7 @@ class LicioGelliFinBot:
         """Show the main menu."""
         keyboard = [
             [
-                InlineKeyboardButton("🎵 tidal-dl-ng", callback_data='tidal_dl_ng'),
+                InlineKeyboardButton("🎵 qobuz-dl", callback_data='qobuz-dl'),
                 InlineKeyboardButton("📺 yt-dlp", callback_data='yt_dlp'),
             ],
             [
@@ -215,39 +219,134 @@ class LicioGelliFinBot:
             parse_mode='Markdown'
         )
 
-    def is_tidal_url(self, url: str) -> bool:
-        """Check if the URL is from Tidal."""
-        return 'tidal.com' in url.lower()
+    def is_qobuz_url(self, url: str) -> bool:
+        """Check if the URL is from qobuz."""
+        return 'qobuz.com' in url.lower()
 
-    async def download_with_tidal_dl_ng(self, url: str) -> tuple[bool, str]:
-        """Download using tidal-dl-ng and return (success, message)."""
+    def parse_progress_line(self, line: str, progress_data: dict) -> None:
+        """Parse progress information from qobuz-dl output lines."""
+        
+        # Match overall list progress (e.g., "List 'Fastidio' ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100%")
+        list_match = re.search(r"List\s+'[^']+'\s+[━═-]+\s+(\d+)%", line)
+        if list_match:
+            progress_data['overall_progress'] = int(list_match.group(1))
+            return
+        
+        # Match individual track progress (e.g., "Item 'Kaos - Intro' ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100%")
+        track_match = re.search(r"Item\s+'([^']+)'\s+[━═-]+\s+(\d+)%", line)
+        if track_match:
+            track_name = track_match.group(1)
+            track_progress = int(track_match.group(2))
+            
+            # If this is a new track starting
+            if progress_data['current_track'] != track_name:
+                progress_data['current_track'] = track_name
+                progress_data['completed_tracks'] += 1
+            
+            progress_data['track_progress'] = track_progress
+            return
+        
+        # Match track count from "Finished list" or similar lines
+        finished_match = re.search(r"Finished list\s+'[^']+'.*?(\d+)\s+tracks?", line, re.IGNORECASE)
+        if finished_match:
+            progress_data['total_tracks'] = int(finished_match.group(1))
+            return
+        
+        # Estimate total tracks from download messages
+        if "Downloaded item" in line and progress_data['total_tracks'] == 0:
+            progress_data['total_tracks'] = progress_data.get('total_tracks', 0) + 1
+
+    def format_progress_message(self, progress_data: dict) -> str:
+        """Format progress information for Telegram message."""
+        lines = []
+        
+        # Add overall progress
+        if progress_data['overall_progress'] > 0:
+            lines.append(f"📊 Overall Progress: {progress_data['overall_progress']}%")
+        
+        # Add current track progress
+        if progress_data['current_track']:
+            lines.append(f"🎵 Current Track: {progress_data['current_track']}")
+            lines.append(f"📈 Track Progress: {progress_data['track_progress']}%")
+        
+        # Add track count information
+        if progress_data['total_tracks'] > 0:
+            lines.append(
+                f"📋 Tracks: {progress_data['completed_tracks']}/{progress_data['total_tracks']} "
+                f"({progress_data['completed_tracks']/progress_data['total_tracks']*100:.1f}%)"
+            )
+        
+        # Add loading indicator if no specific progress available
+        if not lines:
+            lines.append("⏳ Download in progress...")
+        
+        return "\n".join(lines)
+
+    async def download_with_qobuz_dl(self, url: str, update: Update, context: ContextTypes.DEFAULT_TYPE) -> tuple[bool, str]:
+        """Download using qobuz-dl with real-time progress updates."""
         try:
-            # Run tidal-dl-ng command
+            # Send initial processing message
+            processing_msg = await update.message.reply_text(
+                "⏳ Starting download with qobuz-dl...\n"
+                "Progress: 0%"
+            )
+            
+            # Create subprocess with stdout/stderr pipes
             process = await asyncio.create_subprocess_exec(
-                'tidal-dl-ng',
+                '/home/licio/.pyenv/shims/qobuz-dl',
                 'dl',
                 url,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
             
+            # Variables to track progress
+            last_update_time = 0
+            progress_data = {
+                'current_track': None,
+                'track_progress': 0,
+                'overall_progress': 0,
+                'total_tracks': 0,
+                'completed_tracks': 0
+            }
+            
+            # Read output line by line
+            while True:
+                # Read line from stdout
+                line = await process.stdout.readline()
+                if not line:
+                    break
+                    
+                line_text = line.decode('utf-8').strip()
+                
+                # Parse progress information
+                self.parse_progress_line(line_text, progress_data)
+                
+                # Update message periodically (max every 5 seconds)
+                current_time = time.time()
+                if current_time - last_update_time >= 5 or progress_data['overall_progress'] == 100:
+                    progress_text = self.format_progress_message(progress_data)
+                    try:
+                        await processing_msg.edit_text(progress_text)
+                        last_update_time = current_time
+                    except Exception as e:
+                        logger.error(f"Error updating progress message: {e}")
+            
+            # Wait for process completion
             stdout, stderr = await process.communicate()
             
             if process.returncode == 0:
-                # Success
-                output = stdout.decode('utf-8').strip()
-                return True, f"✅ Download completato con successo!"
+                return True, "✅ Download completed successfully!"
             else:
-                # Error
                 error_output = stderr.decode('utf-8').strip()
-                logger.error(f"tidal-dl-ng failed with return code {process.returncode}: {error_output}")
+                logger.error(f"qobuz-dl failed with return code {process.returncode}: {error_output}")
                 return False, f"❌ Errore durante il download:\n\n`{error_output[-500:]}`"
                 
         except FileNotFoundError:
-            logger.error("tidal-dl-ng not found in system PATH")
-            return False, "❌ tidal-dl-ng non trovato. Assicurati che sia installato e nel PATH."
+            logger.error("qobuz-dl not found in system PATH")
+            return False, "❌ qobuz-dl non trovato. Assicurati che sia installato e nel PATH."
         except Exception as e:
-            logger.error(f"Unexpected error during tidal-dl-ng execution: {e}")
+            logger.error(f"Unexpected error during qobuz-dl execution: {e}")
             return False, f"❌ Errore imprevisto: {str(e)}"
 
     async def download_with_yt_dlp(self, url: str) -> tuple[bool, str]:
@@ -297,34 +396,29 @@ class LicioGelliFinBot:
             )
             return
         
-        # Check if it's a Tidal URL
-        if self.is_tidal_url(url):
+        # Check if it's a qobuz URL
+        if self.is_qobuz_url(url):
             if url.endswith("/u"):
                 url = url[:-2]
 
-            # Send processing message
-            processing_msg = await update.message.reply_text(
-                "⏳ Avvio download con tidal-dl-ng...\n"
-                "Questo potrebbe richiedere alcuni minuti."
-            )
-            
             try:
-                # Download with tidal-dl-ng
-                success, message = await self.download_with_tidal_dl_ng(url)
+                # Download with qobuz-dl (now with progress updates)
+                success, message = await self.download_with_qobuz_dl(url, update, context)
                 
-                await processing_msg.edit_text(
+                # Send final result
+                await update.message.reply_text(
                     message,
                     parse_mode='Markdown'
                 )
                 
             except Exception as e:
                 logger.error(f"Error processing URL {url}: {e}")
-                await processing_msg.edit_text(
+                await update.message.reply_text(
                     "❌ Si è verificato un errore durante l'elaborazione del link.\n"
                     f"Dettagli: {str(e)}"
                 )
         else:
-            # Use yt-dlp for non-Tidal URLs
+            # Use yt-dlp for non-Qobuz URLs
             processing_msg = await update.message.reply_text(
                 "⏳ Avvio download con yt-dlp...\n"
                 "Questo potrebbe richiedere alcuni minuti."
@@ -407,4 +501,3 @@ def main() -> None:
 
 if __name__ == '__main__':
     main()
-
