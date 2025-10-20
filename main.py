@@ -18,6 +18,8 @@ from telegram.ext import (
     filters
 )
 
+YT_DEST_PATH = /media/licio/Archivio/Media/to_sort
+
 # Load environment variables from .env file
 load_dotenv()
 
@@ -355,7 +357,7 @@ class LicioGelliFinBot:
             # Run yt-dlp command
             process = await asyncio.create_subprocess_exec(
                 'yt-dlp',
-                '--paths', '~/Media/to_sort',
+                '--paths', YT_DEST_PATH,
                 '--yes-playlist',
                 '--format', 'bestaudio',
                 '--extract-audio',
