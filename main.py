@@ -26,8 +26,9 @@ load_dotenv()
 # Enable logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    level=logging.info
 )
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 class LicioGelliFinBot:
@@ -290,8 +291,10 @@ class LicioGelliFinBot:
             # Send initial processing message
             processing_msg = await update.message.reply_text(
                 "⏳ Starting download with qobuz-dl...\n"
-                "Progress: 0%"
             )
+
+            name = update.message.from_user.first_name
+            logger.info('''{name} is downloading {url}''')
             
             # Create subprocess with stdout/stderr pipes
             process = await asyncio.create_subprocess_exec(
