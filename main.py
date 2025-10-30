@@ -294,7 +294,8 @@ class LicioGelliFinBot:
             )
 
             name = update.message.from_user.first_name
-            logger.info('''{name} is downloading {url}''')
+            msg = f"{name} is downloading {url}"
+            logger.info(msg)
             
             # Create subprocess with stdout/stderr pipes
             process = await asyncio.create_subprocess_exec(
