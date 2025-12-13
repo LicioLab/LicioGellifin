@@ -1,5 +1,3 @@
-
-
 import os
 import logging
 import sys
@@ -28,6 +26,7 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
+# Nota: Rimuovi questa riga se vuoi vedere i log di errore di connessione (utile per debug)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
@@ -44,7 +43,6 @@ class LicioGelliFinBot:
                 InlineKeyboardButton("📺 yt-dlp", callback_data='yt_dlp'),
             ],
             [
-                InlineKeyboardButton("📁 List Files", callback_data='list_files'),
                 InlineKeyboardButton("❓ Help", callback_data='help'),
             ]
         ]
@@ -55,8 +53,7 @@ class LicioGelliFinBot:
             "🤖 *Benvenuto in LicioGelliFin Bot!*\n\n"
             "Seleziona il tool che vuoi utilizzare per scaricare contenuti multimediali:\n\n"
             "🎵 *qobuz-dl* - Per scaricare musica da Qobuz\n"
-            "📺 *yt-dlp* - Per scaricare video da YouTube e altri siti\n"
-            "📁 *List Files* - Mostra i file nella cartella corrente\n\n"
+            "📺 *yt-dlp* - Per scaricare video da YouTube e altri siti\n\n"
             "Usa /help per maggiori informazioni."
         )
         
@@ -73,74 +70,14 @@ class LicioGelliFinBot:
             "/start - Avvia il bot e mostra le opzioni di download\n"
             "/dl - Mostra le opzioni di download, alias per /start\n"
             "/help - Mostra questo messaggio di aiuto\n"
-            "/list - Mostra i file nella cartella corrente\n"
         )
         
         await update.message.reply_text(help_text, parse_mode='Markdown')
-
-    async def list_files(self) -> tuple[bool, str]:
-        """List files in current directory using ls command."""
-        try:
-            # Run ls command
-            process = await asyncio.create_subprocess_exec(
-                'ls',
-                #'-l',
-                '/Users/orald/Media/Music',  # Long format with hidden files
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            
-            stdout, stderr = await process.communicate()
-            
-            if process.returncode == 0:
-                # Success
-                output = stdout.decode('utf-8').strip()
-                if not output:
-                    return True, "📁 La cartella è vuota."
-                
-                # Limit output length for Telegram message limits
-                if len(output) > 3000:
-                    output = output[:3000] + "\n\n... (output truncated)"
-                
-                return True, f"📁 *File nella cartella corrente:*\n\n```\n{output}\n```"
-            else:
-                # Error
-                error_output = stderr.decode('utf-8').strip()
-                logger.error(f"ls command failed with return code {process.returncode}: {error_output}")
-                return False, f"❌ Errore durante l'esecuzione del comando ls:\n\n`{error_output}`"
-                
-        except FileNotFoundError:
-            logger.error("ls command not found in system PATH")
-            return False, "❌ Comando ls non trovato. Sistema non supportato."
-        except Exception as e:
-            logger.error(f"Unexpected error during ls execution: {e}")
-            return False, f"❌ Errore imprevisto: {str(e)}"
 
     async def button_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle button presses."""
         query = update.callback_query
         await query.answer()
-        
-        if query.data == 'list_files':
-            # Show loading message
-            await query.edit_message_text(
-                "⏳ Caricamento lista file...",
-                parse_mode='Markdown'
-            )
-            
-            # Get file list
-            success, message = await self.list_files()
-            
-            # Add back button
-            keyboard = [[InlineKeyboardButton("« Torna al menu", callback_data='back_to_menu')]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            await query.edit_message_text(
-                message,
-                reply_markup=reply_markup,
-                parse_mode='Markdown'
-            )
-            return
         
         responses = {
             'qobuz-dl': (
@@ -193,7 +130,6 @@ class LicioGelliFinBot:
                 InlineKeyboardButton("📺 yt-dlp", callback_data='yt_dlp'),
             ],
             [
-                InlineKeyboardButton("📁 List Files", callback_data='list_files'),
                 InlineKeyboardButton("❓ Help", callback_data='help'),
             ]
         ]
@@ -208,17 +144,6 @@ class LicioGelliFinBot:
         await query.edit_message_text(
             welcome_message,
             reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
-
-    async def list_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle /list command."""
-        processing_msg = await update.message.reply_text("⏳ Caricamento lista file...")
-        
-        success, message = await self.list_files()
-        
-        await processing_msg.edit_text(
-            message,
             parse_mode='Markdown'
         )
 
@@ -294,8 +219,7 @@ class LicioGelliFinBot:
             )
 
             name = update.message.from_user.first_name
-            msg = f"{name} is downloading {url}"
-            logger.info(msg)
+            logger.info(f"{name} is downloading {url}")
             
             # Create subprocess with stdout/stderr pipes
             process = await asyncio.create_subprocess_exec(
@@ -303,7 +227,7 @@ class LicioGelliFinBot:
                 'dl',
                 url,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.STDOUT  # Change: Merge stderr into stdout to prevent blocking
             )
             
             # Variables to track progress
@@ -339,14 +263,15 @@ class LicioGelliFinBot:
                         logger.error(f"Error updating progress message: {e}")
             
             # Wait for process completion
-            stdout, stderr = await process.communicate()
+            await process.wait() # Use wait() instead of communicate() since we read stdout already
             
             if process.returncode == 0:
                 return True, "✅ Download completed successfully!"
             else:
-                error_output = stderr.decode('utf-8').strip()
-                logger.error(f"qobuz-dl failed with return code {process.returncode}: {error_output}")
-                return False, f"❌ Errore durante il download:\n\n`{error_output[-500:]}`"
+                # Since we consumed stdout/stderr in the loop, we might not have the full error output here easily
+                # unless we stored it. But usually the loop logs or shows progress.
+                logger.error(f"qobuz-dl failed with return code {process.returncode}")
+                return False, f"❌ Errore durante il download (Codice {process.returncode})."
                 
         except FileNotFoundError:
             logger.error("qobuz-dl not found in system PATH")
@@ -376,7 +301,6 @@ class LicioGelliFinBot:
             
             if process.returncode == 0:
                 # Success
-                output = stdout.decode('utf-8').strip()
                 return True, f"✅ Download completato con successo!"
             else:
                 # Error
@@ -463,7 +387,7 @@ class LicioGelliFinBot:
         self.application.add_handler(CommandHandler("start", self.start))
         self.application.add_handler(CommandHandler("dl", self.start))
         self.application.add_handler(CommandHandler("help", self.help_command))
-        self.application.add_handler(CommandHandler("list", self.list_command))
+        # Removed /list command handler
         
         # Callback query handler for buttons
         self.application.add_handler(CallbackQueryHandler(self.button_handler))
