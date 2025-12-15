@@ -219,7 +219,8 @@ class LicioGelliFinBot:
             )
 
             name = update.message.from_user.first_name
-            logger.info(f"{name} is downloading {url}")
+            msg = f"{name} is downloading {url}"
+            logger.info(msg)
             
             # Create subprocess with stdout/stderr pipes
             process = await asyncio.create_subprocess_exec(
@@ -227,11 +228,13 @@ class LicioGelliFinBot:
                 'dl',
                 url,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT  # Change: Merge stderr into stdout to prevent blocking
+                stderr=asyncio.subprocess.STDOUT  # Merge stderr into stdout
             )
             
             # Variables to track progress
             last_update_time = 0
+            last_sent_message = ""  # Memorizza l'ultimo messaggio inviato
+            
             progress_data = {
                 'current_track': None,
                 'track_progress': 0,
@@ -256,20 +259,27 @@ class LicioGelliFinBot:
                 current_time = time.time()
                 if current_time - last_update_time >= 5 or progress_data['overall_progress'] == 100:
                     progress_text = self.format_progress_message(progress_data)
-                    try:
-                        await processing_msg.edit_text(progress_text)
-                        last_update_time = current_time
-                    except Exception as e:
-                        logger.error(f"Error updating progress message: {e}")
+                    
+                    # Controllo fondamentale: Aggiorna solo se il testo è cambiato
+                    if progress_text != last_sent_message:
+                        try:
+                            await processing_msg.edit_text(progress_text)
+                            last_update_time = current_time
+                            last_sent_message = progress_text
+                        except Exception as e:
+                            # Ignora l'errore se per caso è ancora "Message not modified"
+                            if "Message is not modified" in str(e):
+                                pass
+                            else:
+                                logger.error(f"Error updating progress message: {e}")
             
             # Wait for process completion
-            await process.wait() # Use wait() instead of communicate() since we read stdout already
+            await process.wait()
             
             if process.returncode == 0:
                 return True, "✅ Download completed successfully!"
             else:
-                # Since we consumed stdout/stderr in the loop, we might not have the full error output here easily
-                # unless we stored it. But usually the loop logs or shows progress.
+                # Logghiamo l'errore ma non abbiamo l'output completo qui (è stato consumato nel loop)
                 logger.error(f"qobuz-dl failed with return code {process.returncode}")
                 return False, f"❌ Errore durante il download (Codice {process.returncode})."
                 
