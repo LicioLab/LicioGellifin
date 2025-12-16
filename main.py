@@ -16,7 +16,7 @@ from telegram.ext import (
     filters
 )
 
-YT_DEST_PATH = "/media/licio/Archivio/Media/to_sort"
+YT_DEST_PATH = "/media/licio/multimedia/to_sort"
 
 # Load environment variables from .env file
 load_dotenv()
