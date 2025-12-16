@@ -151,136 +151,36 @@ class LicioGelliFinBot:
         """Check if the URL is from qobuz."""
         return 'qobuz.com' in url.lower()
 
-    def parse_progress_line(self, line: str, progress_data: dict) -> None:
-        """Parse progress information from qobuz-dl output lines."""
-        
-        # Match overall list progress (e.g., "List 'Fastidio' ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100%")
-        list_match = re.search(r"List\s+'[^']+'\s+[━═-]+\s+(\d+)%", line)
-        if list_match:
-            progress_data['overall_progress'] = int(list_match.group(1))
-            return
-        
-        # Match individual track progress (e.g., "Item 'Kaos - Intro' ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100%")
-        track_match = re.search(r"Item\s+'([^']+)'\s+[━═-]+\s+(\d+)%", line)
-        if track_match:
-            track_name = track_match.group(1)
-            track_progress = int(track_match.group(2))
-            
-            # If this is a new track starting
-            if progress_data['current_track'] != track_name:
-                progress_data['current_track'] = track_name
-                progress_data['completed_tracks'] += 1
-            
-            progress_data['track_progress'] = track_progress
-            return
-        
-        # Match track count from "Finished list" or similar lines
-        finished_match = re.search(r"Finished list\s+'[^']+'.*?(\d+)\s+tracks?", line, re.IGNORECASE)
-        if finished_match:
-            progress_data['total_tracks'] = int(finished_match.group(1))
-            return
-        
-        # Estimate total tracks from download messages
-        if "Downloaded item" in line and progress_data['total_tracks'] == 0:
-            progress_data['total_tracks'] = progress_data.get('total_tracks', 0) + 1
-
-    def format_progress_message(self, progress_data: dict) -> str:
-        """Format progress information for Telegram message."""
-        lines = []
-        
-        # Add overall progress
-        if progress_data['overall_progress'] > 0:
-            lines.append(f"📊 Overall Progress: {progress_data['overall_progress']}%")
-        
-        # Add current track progress
-        if progress_data['current_track']:
-            lines.append(f"🎵 Current Track: {progress_data['current_track']}")
-            lines.append(f"📈 Track Progress: {progress_data['track_progress']}%")
-        
-        # Add track count information
-        if progress_data['total_tracks'] > 0:
-            lines.append(
-                f"📋 Tracks: {progress_data['completed_tracks']}/{progress_data['total_tracks']} "
-                f"({progress_data['completed_tracks']/progress_data['total_tracks']*100:.1f}%)"
-            )
-        
-        # Add loading indicator if no specific progress available
-        if not lines:
-            lines.append("⏳ Download in progress...")
-        
-        return "\n".join(lines)
-
     async def download_with_qobuz_dl(self, url: str, update: Update, context: ContextTypes.DEFAULT_TYPE) -> tuple[bool, str]:
-        """Download using qobuz-dl with real-time progress updates."""
+        """Download using qobuz-dl without progress bar."""
         try:
-            # Send initial processing message
-            processing_msg = await update.message.reply_text(
-                "⏳ Starting download with qobuz-dl...\n"
+            # Avvisa l'utente che il download è partito
+            await update.message.reply_text(
+                "⏳ Download avviato con qobuz-dl... Ti avviserò quando sarà finito."
             )
 
             name = update.message.from_user.first_name
             msg = f"{name} is downloading {url}"
             logger.info(msg)
             
-            # Create subprocess with stdout/stderr pipes
+            # Crea il sottoprocesso ed esegui il comando
             process = await asyncio.create_subprocess_exec(
                 '/home/licio/.pyenv/shims/qobuz-dl',
                 'dl',
                 url,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT  # Merge stderr into stdout
+                stderr=asyncio.subprocess.PIPE
             )
             
-            # Variables to track progress
-            last_update_time = 0
-            last_sent_message = ""  # Memorizza l'ultimo messaggio inviato
-            
-            progress_data = {
-                'current_track': None,
-                'track_progress': 0,
-                'overall_progress': 0,
-                'total_tracks': 0,
-                'completed_tracks': 0
-            }
-            
-            # Read output line by line
-            while True:
-                # Read line from stdout
-                line = await process.stdout.readline()
-                if not line:
-                    break
-                    
-                line_text = line.decode('utf-8').strip()
-                
-                # Parse progress information
-                self.parse_progress_line(line_text, progress_data)
-                
-                # Update message periodically (max every 5 seconds)
-                current_time = time.time()
-                if current_time - last_update_time >= 5 or progress_data['overall_progress'] == 100:
-                    progress_text = self.format_progress_message(progress_data)
-                    
-                    # Controllo fondamentale: Aggiorna solo se il testo è cambiato
-                    if progress_text != last_sent_message:
-                        try:
-                            await processing_msg.edit_text(progress_text)
-                            last_update_time = current_time
-                            last_sent_message = progress_text
-                        except Exception as e:
-                            # Ignora l'errore se per caso è ancora "Message not modified"
-                            if "Message is not modified" in str(e):
-                                pass
-                            else:
-                                logger.error(f"Error updating progress message: {e}")
-            
-            # Wait for process completion
-            await process.wait()
+            # Attende la fine del processo catturando l'output (wait implicit)
+            stdout, stderr = await process.communicate()
             
             if process.returncode == 0:
-                return True, "✅ Download completed successfully!"
+                return True, "✅ Download completato con successo!"
             else:
-                # Logghiamo l'errore ma non abbiamo l'output completo qui (è stato consumato nel loop)
-                logger.error(f"qobuz-dl failed with return code {process.returncode}")
+                # Decodifica l'errore per i log
+                error_msg = stderr.decode('utf-8', errors='replace').strip()
+                logger.error(f"qobuz-dl failed with return code {process.returncode}: {error_msg}")
                 return False, f"❌ Errore durante il download (Codice {process.returncode})."
                 
         except FileNotFoundError:

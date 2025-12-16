@@ -1,0 +1,190 @@
+voglio usare beets per la gestione della mia liberia, questo è il mio config:
+
+directory: /media/licio/multimedia/music_fin
+
+library: ~/beets/data/musiclibrary.db
+
+
+asciify_paths: yes
+
+
+
+import:
+
+    write: yes
+
+    move: no
+
+    copy: yes
+
+    log: ~/beets/logs
+
+    duplicate_action: ask
+
+    none_rec_action: skip
+
+
+paths:
+
+    default: $albumartist/$albumartist - $original_year - $album/$albumartist - $track $title
+
+    singleton: $albumartist/$album/$track $title
+
+    comp: Compilation/$album/$track $title
+
+    albumtype:soundtrack: Soundtracks/$album/$track $title
+
+
+match:
+
+    strong_rec_thresh: 0.040000000000000001
+
+    distance_weights:
+
+        source: 0.25
+
+
+plugins: fetchart embedart discogs lastgenre rewrite ihate duplicates lyrics missing
+
+embedart:
+
+    remove_art_file: yes
+
+    maxwidth: 0
+
+    auto: yes
+
+    compare_threshold: 0
+
+    ifempty: yes
+
+lastgenre:
+
+    count: 5
+
+    whitelist: yes
+
+    min_weight: 10
+
+    fallback:
+
+    canonical: no
+
+    source: album
+
+    force: yes
+
+    auto: yes
+
+    separator: '; '
+
+    prefer_specific: no
+
+fetchart:
+
+    auto: yes
+
+    minwidth: 0
+
+    maxwidth: 0
+
+    enforce_ratio: yes
+
+    cautious: no
+
+    cover_names:
+
+    - cover
+
+    - front
+
+    - art
+
+    - album
+
+    - folder
+
+    sources:
+
+    - filesystem
+
+    - coverart
+
+    - itunes
+
+    - amazon
+
+    - albumart
+
+    google_key: *****
+
+    google_engine: *****
+
+    fanarttv_key: *****
+
+    store_source: no
+
+discogs:
+
+    user_token: "HnSgEGoQVQwOmUijXZGbFzGJzZyCAkdIvXGUpTdm"
+
+rewrite: {}
+
+duplicates:
+
+    album: no
+
+    checksum: ''
+
+    copy: ''
+
+    count: no
+
+    delete: no
+
+    format: ''
+
+    full: no
+
+    keys: []
+
+    merge: no
+
+    move: ''
+
+    path: no
+
+    tiebreak: {}
+
+    strict: no
+
+    tag: ''
+
+ihate:
+
+    warn: []
+
+    skip: []
+
+lyrics:
+
+    auto: yes
+
+    dist_thresh: 0.11
+
+    fallback: null
+
+    force: yes
+
+    google_API_key: *****
+
+    google_engine_ID: *****
+
+    print: no
+
+    sources: [lrclib, google, genius, tekstowo]
+
+    synced: yes
+
+
+ricordo che ho usato questo comando in passato beet import ---from-logfile=log.txt [import_folder] mi sapresti dire qual è il suo complementare (il comando per importare tutto cio di cui beets è certo e creare il log file delle release da importare manualemente)
